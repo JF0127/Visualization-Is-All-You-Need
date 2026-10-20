@@ -1,0 +1,1314 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>模块与数据流</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Segoe UI", "Microsoft YaHei", sans-serif;
+      --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+      --bg: #f5f5f1;
+      --bg-dot: #dadad2;
+      --surface: #ffffff;
+      --chrome: #fafaf7;
+      --ink: #1c2026;
+      --ink-2: #535a64;
+      --ink-3: #888e97;
+      --ink-4: #b5b8bc;
+      --line: #e4e4de;
+      --line-strong: #d1d2cb;
+      --edge: #a6aaaf;
+      --accent: #0e7c62;
+      --accent-ink: #0a624d;
+      --accent-soft: #e2efe9;
+      --warn: #a3631d;
+      --warn-soft: #f5e9d8;
+      --focus: #1c2026;
+      --drawer-w: 400px;
+      --ease: cubic-bezier(.2, .7, .2, 1);
+      font-family: var(--font);
+      color: var(--ink);
+      background: var(--bg);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden;
+      background: var(--bg); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; cursor: pointer; }
+    button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+    /* 顶栏 */
+    .topbar {
+      flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 20px;
+      min-height: 52px; padding: 8px 16px 8px 12px; background: var(--chrome); border-bottom: 1px solid var(--line);
+    }
+    .breadcrumbs { display: flex; align-items: center; gap: 1px; min-width: 0; flex: 1 1 auto; overflow: hidden; }
+    .crumb {
+      display: inline-flex; align-items: center; gap: 9px; min-width: 0; max-width: 280px;
+      border: 0; background: transparent; padding: 5px 8px; border-radius: 6px;
+      font-size: 13.5px; color: var(--ink-2); white-space: nowrap; transition: background .15s, color .15s;
+    }
+    .crumb-text { overflow: hidden; text-overflow: ellipsis; }
+    .crumb:hover:not(:disabled) { background: #edede8; color: var(--ink); }
+    .crumb:disabled { cursor: default; color: var(--ink); font-weight: 600; }
+    .crumb-root { font-size: 14.5px; font-weight: 650; color: var(--ink); letter-spacing: .01em; flex: none; }
+    .crumb-sep { color: var(--ink-4); font-size: 13px; padding: 0 2px; flex: none; }
+    .brand { width: 18px; height: 18px; flex: none; }
+    .topbar-right { display: flex; align-items: center; gap: 14px; flex: none; }
+    .filters { display: flex; gap: 2px; margin: 0; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: #efefea; }
+    .filters legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    .chip { position: relative; display: block; cursor: pointer; }
+    .chip input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+    .chip span {
+      display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px 4px 9px; border-radius: 6px;
+      font-size: 12.5px; color: var(--ink-3); transition: background .16s, color .16s, box-shadow .16s;
+    }
+    .chip span::before {
+      content: ""; width: 6px; height: 6px; border-radius: 50%; border: 1.2px solid currentColor;
+      box-sizing: border-box; transition: background .16s, border-color .16s;
+    }
+    .chip:hover input:not(:checked) + span { color: var(--ink-2); }
+    .chip input:checked + span { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(28, 32, 38, .06); }
+    .chip input:checked + span::before { background: var(--ink); border-color: var(--ink); }
+    .chip input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 1px; }
+    .status {
+      display: inline-flex; align-items: center; gap: 8px; max-width: 320px; height: 20px; padding-left: 14px;
+      border-left: 1px solid var(--line); font-size: 12px; color: var(--ink-2);
+    }
+    .status-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-4); transition: background .3s, box-shadow .3s; }
+    .status.ok .status-dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .status.pending .status-dot { animation: breathe 1.4s ease-in-out infinite; }
+    .status.warning { color: var(--warn); }
+    .status.warning .status-dot { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
+
+    /* 工作区与画布 */
+    .workspace { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+    .stage { position: absolute; inset: 0; display: flex; flex-direction: column; transition: right .3s var(--ease); }
+    .workspace.details-open .stage { right: var(--drawer-w); }
+    .canvas {
+      position: relative; flex: 1 1 auto; min-height: 0; background-color: var(--bg);
+      background-image: radial-gradient(circle, var(--bg-dot) .85px, transparent 1.15px);
+      background-size: 22px 22px; background-position: 11px 11px;
+    }
+    .graph { position: absolute; inset: 0; display: flex; overflow: auto; padding: 20px 28px; }
+    .graph-svg { display: block; flex: none; margin: auto; overflow: visible; font-family: var(--font); }
+    .empty { margin: auto; max-width: 440px; text-align: center; color: var(--ink-3); font-size: 13.5px; line-height: 1.9; }
+    .canvas-foot {
+      flex: none; display: flex; align-items: center; gap: 18px; height: 36px; padding: 0 18px;
+      border-top: 1px solid var(--line); background: var(--chrome); color: var(--ink-3);
+      font-size: 11.5px; white-space: nowrap; overflow: hidden;
+    }
+    .key { display: inline-flex; align-items: center; gap: 7px; flex: none; }
+    .key-line { position: relative; width: 20px; border-top: 1.4px solid var(--edge); }
+    .key-line.live { border-top-width: 1.8px; border-color: var(--accent); }
+    .key-line::after {
+      content: ""; position: absolute; right: -1px; top: -4px; border-left: 6px solid var(--edge);
+      border-top: 3.2px solid transparent; border-bottom: 3.2px solid transparent;
+    }
+    .key-line.live::after { border-left-color: var(--accent); top: -4.2px; }
+    .key-box { width: 14px; height: 10px; border-radius: 2.5px; border: 1px solid var(--line-strong); background: var(--surface); }
+    .key-box.external { border-style: dashed; border-color: #b6b8b2; background: transparent; }
+    .key-box.stack { box-shadow: 3px 3px 0 -1px var(--surface), 3px 3px 0 0 var(--line-strong); }
+    .foot-divider { width: 1px; height: 12px; background: var(--line-strong); flex: none; }
+    .foot-hint { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .foot-counts { flex: none; font-variant-numeric: tabular-nums; }
+
+    /* 模块方框 */
+    .node { cursor: pointer; outline: none; transition: opacity .2s ease; }
+    .node-box { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; filter: url(#node-shadow); transition: stroke .15s, stroke-width .15s; }
+    .node-stack { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; transition: transform .22s var(--ease); }
+    .node-name { fill: var(--ink); font-size: 14.5px; font-weight: 600; }
+    .node-summary { fill: var(--ink-2); font-size: 12px; }
+    .node-count { fill: var(--ink-3); font-family: var(--mono); font-size: 11px; transition: fill .15s; }
+    .node-chevron { fill: none; stroke: var(--ink-3); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; transition: transform .22s var(--ease), stroke .15s; }
+    .node-tag { fill: var(--ink-3); font-size: 10.5px; letter-spacing: .1em; }
+    .node:hover .node-box { stroke: #a8aba6; }
+    .node:hover .node-stack { transform: translate(2px, 2px); }
+    .node:hover .node-chevron { transform: translateX(2px); stroke: var(--ink); }
+    .node:hover .node-count { fill: var(--ink); }
+    .node.selected .node-box { stroke: var(--ink); stroke-width: 1.5; }
+    .node:focus-visible .node-box { stroke: var(--focus); stroke-width: 2; }
+    .node.external .node-box { fill: rgba(255, 255, 255, .5); stroke: #b6b8b2; stroke-dasharray: 4 3; filter: none; }
+    .node.external .node-stack { fill: var(--bg); stroke: #c4c6c0; stroke-dasharray: 4 3; }
+    .node.external .node-name { fill: var(--ink-2); }
+    .node.external .node-summary { fill: var(--ink-3); }
+    .node.external:hover .node-box { stroke: #8f938e; }
+    .node.external.selected .node-box { stroke: var(--ink); stroke-dasharray: none; }
+
+    /* 箭头 */
+    .edge { cursor: pointer; outline: none; transition: opacity .2s ease; }
+    .edge-line { fill: none; stroke: var(--edge); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; transition: stroke .35s ease, stroke-width .15s; }
+    .edge-motion { fill: none; stroke: #fff; stroke-opacity: 0; stroke-width: 1.1; stroke-dasharray: 5 19; stroke-linecap: round; pointer-events: none; transition: stroke-opacity .35s; }
+    .edge-hit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; }
+    .edge-label-hit { fill: transparent; pointer-events: all; }
+    .edge-label {
+      fill: var(--ink-2); font-size: 12px; paint-order: stroke; stroke: var(--bg); stroke-width: 4px;
+      stroke-linejoin: round; pointer-events: none; transition: fill .3s;
+    }
+    .edge.active .edge-line { stroke: var(--accent); stroke-width: 1.9; }
+    .edge.active .edge-motion { stroke-opacity: .9; animation: flow 1.2s linear infinite; }
+    .edge.active .edge-label { fill: var(--accent-ink); }
+    .edge.hover .edge-line, .edge:focus-visible .edge-line { stroke-width: 2.2; }
+    .edge.selected .edge-line { stroke-width: 2.4; }
+    .edge.hover:not(.active) .edge-line, .edge.selected:not(.active) .edge-line, .edge:focus-visible:not(.active) .edge-line { stroke: var(--ink-2); }
+    .edge.hover:not(.active) .edge-label, .edge.selected:not(.active) .edge-label { fill: var(--ink); }
+    .graph-svg.focusing .edge:not(.related) { opacity: .16; }
+    .graph-svg.focusing .node:not(.related) { opacity: .42; }
+
+    /* 层级切换 */
+    .graph-svg.enter-in { animation: enter-in .38s var(--ease) backwards; }
+    .graph-svg.enter-out { animation: enter-out .38s var(--ease) backwards; }
+    .graph-svg.enter-fade { animation: fade-in .24s ease backwards; }
+    .graph-svg.enter-in .node, .graph-svg.enter-out .node { animation: fade-in .36s var(--ease) backwards; animation-delay: calc(var(--i, 0) * 34ms); }
+    .graph-svg.enter-in .edge, .graph-svg.enter-out .edge { animation: fade-in .4s ease backwards; animation-delay: .14s; }
+    @keyframes enter-in { from { opacity: 0; transform: scale(.965); } }
+    @keyframes enter-out { from { opacity: 0; transform: scale(1.03); } }
+    @keyframes fade-in { from { opacity: 0; } }
+    @keyframes rise { from { opacity: 0; transform: translateY(5px); } }
+    @keyframes flow { to { stroke-dashoffset: -24; } }
+    @keyframes breathe { 50% { opacity: .35; } }
+
+    /* 详情面板 */
+    .drawer {
+      position: absolute; top: 0; right: 0; bottom: 0; width: var(--drawer-w); max-width: 100%;
+      display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--line);
+      transform: translateX(100%); visibility: hidden; pointer-events: none;
+      transition: transform .3s var(--ease), visibility 0s linear .3s;
+    }
+    .workspace.details-open .drawer { transform: none; visibility: visible; pointer-events: auto; transition: transform .3s var(--ease), visibility 0s; }
+    .drawer-head { flex: none; display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 10px 0 22px; border-bottom: 1px solid var(--line); }
+    .drawer-kicker { margin: 0; font-size: 11.5px; font-weight: 500; letter-spacing: .14em; color: var(--ink-3); }
+    .close { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-3); transition: background .15s, color .15s; }
+    .close:hover { background: #f0f0ec; color: var(--ink); }
+    .details { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 24px 22px 44px; overflow-wrap: anywhere; }
+    .details > * { animation: rise .32s var(--ease) backwards; }
+    .details > :nth-child(2) { animation-delay: .03s; }
+    .details > :nth-child(n+3) { animation-delay: .06s; }
+    .detail-name { margin: 0; font-size: 20px; font-weight: 650; line-height: 1.4; letter-spacing: .01em; }
+    .identifier {
+      display: inline-block; margin-top: 9px; padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px;
+      background: #f4f4f0; font-family: var(--mono); font-size: 11.5px; line-height: 1.6; color: var(--ink-2);
+    }
+    .detail-note { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-3); }
+    .detail-field { margin-top: 28px; }
+    .field-label { margin: 0 0 8px; font-size: 11.5px; font-weight: 500; letter-spacing: .14em; color: var(--ink-3); }
+    .detail-field p { margin: 0; font-size: 13.5px; line-height: 1.9; color: var(--ink-2); white-space: pre-wrap; }
+    .detail-field.lead p { font-size: 14.5px; line-height: 1.75; color: var(--ink); }
+    .route { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; font-size: 18px; font-weight: 650; line-height: 1.45; }
+    .route-arrow { width: 22px; height: 10px; flex: none; color: var(--ink-3); }
+    .flow-list { margin-top: 22px; }
+    .flow-detail { padding: 22px 0 26px; border-top: 1px solid var(--line); }
+    .flow-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+    .flow-title h3 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.5; }
+    .flow-state { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: 11.5px; color: var(--ink-3); transition: color .3s; }
+    .flow-state::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-4); transition: background .3s, box-shadow .3s; }
+    .flow-detail.live .flow-state { color: var(--accent-ink); }
+    .flow-detail.live .flow-state::before { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .flow-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 5px; font-size: 11.5px; color: var(--ink-3); }
+    .flow-meta code { font-family: var(--mono); color: var(--ink-2); }
+    .flow-meta .sep { color: var(--ink-4); }
+    .data-slot { width: 100%; margin-top: 14px; padding: 13px 14px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fcfcfa; }
+    .data-slot [hidden] { display: none !important; }
+    .data-empty { display: flex; align-items: center; justify-content: center; gap: 8px; height: 76px; font-size: 12px; color: var(--ink-3); }
+    .data-empty::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--ink-4); animation: breathe 1.6s ease-in-out infinite; }
+    .readout-meta { display: flex; justify-content: space-between; gap: 12px; font-size: 11px; letter-spacing: .08em; color: var(--ink-3); }
+    .readout-time { font-family: var(--mono); letter-spacing: 0; font-variant-numeric: tabular-nums; }
+    .readout-value { margin: 1px 0 8px; font-size: 30px; font-weight: 500; line-height: 1.25; letter-spacing: -.01em; font-variant-numeric: tabular-nums; color: var(--ink); overflow-wrap: anywhere; }
+    .series-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 3px 18px; margin: 7px 0 10px; }
+    .series { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .series-swatch { width: 10px; height: 2.5px; flex: none; border-radius: 2px; }
+    .series-name { flex: none; font-size: 11.5px; color: var(--ink-3); }
+    .series-value { margin-left: auto; font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .data-chart { display: block; width: 100%; height: 132px; }
+    .data-number { padding: 2px 0 4px; font-size: 26px; font-weight: 500; line-height: 1.4; font-variant-numeric: tabular-nums; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .data-number.raw { font-family: var(--mono); font-size: 12.5px; font-weight: 400; line-height: 1.75; color: var(--ink-2); }
+    .data-text { list-style: none; margin: 0; padding: 0; }
+    .data-entry { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; padding: 6px 0; font-size: 12px; line-height: 1.7; }
+    .data-entry + .data-entry { border-top: 1px solid #eeeee9; }
+    .data-entry time { font-family: var(--mono); font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+    .data-entry-value { font-family: var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .flow-description { margin: 14px 0 0; font-size: 13px; line-height: 1.85; color: var(--ink-2); white-space: pre-wrap; }
+
+    @media (max-width: 820px) {
+      .topbar { flex-wrap: wrap; gap: 8px 12px; padding: 8px 12px; }
+      .topbar-right { width: 100%; justify-content: space-between; }
+      .status { border-left: 0; padding-left: 0; max-width: 55vw; }
+      .workspace.details-open .stage { right: 0; }
+      .drawer { z-index: 5; width: min(var(--drawer-w), 100%); box-shadow: -12px 0 32px rgba(28, 32, 38, .1); }
+      .graph { padding: 16px; }
+      .canvas-foot { height: auto; flex-wrap: wrap; gap: 6px 14px; padding: 8px 16px; white-space: normal; }
+      .foot-divider { display: none; }
+      .foot-hint { flex-basis: 100%; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <nav id="breadcrumbs" class="breadcrumbs" aria-label="模块层级"></nav>
+    <div class="topbar-right">
+      <fieldset class="filters">
+        <legend>显示的数据流类型</legend>
+        <label class="chip"><input type="checkbox" value="实时" checked><span>实时</span></label>
+        <label class="chip"><input type="checkbox" value="配置"><span>配置</span></label>
+        <label class="chip"><input type="checkbox" value="文件"><span>文件</span></label>
+      </fieldset>
+      <div id="status" class="status pending" role="status"><i class="status-dot" aria-hidden="true"></i><span id="status-text" class="status-text">正在连接本地服务…</span></div>
+    </div>
+  </header>
+  <div id="workspace" class="workspace">
+    <main class="stage">
+      <section class="canvas" aria-label="模块关系图">
+        <div id="graph" class="graph"></div>
+      </section>
+      <footer class="canvas-foot">
+        <span class="key"><i class="key-line live"></i>2 秒内有数据</span>
+        <span class="key"><i class="key-line"></i>暂无新数据</span>
+        <span class="key"><i class="key-box external"></i>外部关联模块</span>
+        <span class="key"><i class="key-box stack"></i>可进入下一层</span>
+        <span class="foot-divider" aria-hidden="true"></span>
+        <span class="foot-hint">点击模块查看详情，可进入的模块同时展开下一层；点击箭头查看数据流，反馈连接从下方绕回</span>
+        <span id="counts" class="foot-counts"></span>
+      </footer>
+    </main>
+    <aside id="drawer" class="drawer" aria-labelledby="drawer-title" aria-hidden="true" inert>
+      <div class="drawer-head">
+        <h2 id="drawer-title" class="drawer-kicker">详情</h2>
+        <button id="close-details" class="close" type="button" aria-label="关闭详情">
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3 L11 11 M11 3 L3 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div id="details" class="details"></div>
+    </aside>
+  </div>
+  <script>
+    "use strict";
+
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    const FONT = '-apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Segoe UI", "Microsoft YaHei", sans-serif';
+    const MONO = 'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace';
+    const NODE_H = 88, ROW_GAP = 60, PAD_X = 64, PAD_Y = 36;
+    const NAME_SIZE = 14.5, NAME_WEIGHT = 600, SUMMARY_SIZE = 12, LABEL_SIZE = 12, LABEL_LINE = 16, LABEL_WRAP = 150;
+    const MIN_SCALE = .55, MAX_SCALE = 1.45;
+    const COLORS = { edge: "#a6aaaf", strong: "#535a64", active: "#0e7c62", axis: "#a0a5ab", grid: "#ecede8" };
+    const graph = document.getElementById("graph");
+    const workspace = document.getElementById("workspace");
+    const drawer = document.getElementById("drawer");
+    const details = document.getElementById("details");
+    const measureContext = document.createElement("canvas").getContext("2d");
+    const state = {
+      model: { title: "模块与数据流", modules: new Map(), children: new Map(), flows: [] },
+      level: "", types: new Set(["实时"]), text: null, names: new Map(),
+      selection: null, view: null, svg: null, edgeElements: [], nodeElements: new Map(),
+      renderedLevel: null, transition: "",
+      moduleError: "", namesError: "", namesLoaded: false,
+      modulePending: false, namesPending: false
+    };
+    const LIVE_SECONDS = 10, CHART_HEIGHT = 132;
+    const liveData = { session: null, cache: new Map(), widgets: [] };
+    const liveResizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(() => renderLiveData()) : null;
+    const graphResizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(() => fitGraph()) : null;
+
+    function element(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+
+    function svgElement(tag, attributes = {}, text) {
+      const node = document.createElementNS(SVG_NS, tag);
+      for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, String(value));
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+
+    function parentId(id) {
+      const slash = id.lastIndexOf("/");
+      return slash < 0 ? "" : id.slice(0, slash);
+    }
+
+    function parseMarkdown(text) {
+      const modules = new Map(), children = new Map(), flows = [];
+      let title = "模块与数据流", current = null;
+      for (const raw of text.split(/\r?\n/)) {
+        const line = raw.trim();
+        const projectMatch = line.match(/^#\s+(.+)$/);
+        const moduleMatch = line.match(/^###\s+([^\s·]+)\s*·\s*(.+)$/);
+        if (projectMatch) title = projectMatch[1].trim();
+        if (moduleMatch) {
+          current = { id: moduleMatch[1], name: moduleMatch[2].trim(), summary: "", detail: "", order: modules.size };
+          modules.set(current.id, current);
+          continue;
+        }
+        const flowMatch = line.match(/^-\s+(\S+)\s*->\s*(\S+)\s*:\s*([^|]+)\|([^|]*)\|([^|]*)\|([^|]*)\|(.*)$/);
+        if (flowMatch) {
+          const [, source, target, name, label, display, type, detail] = flowMatch;
+          flows.push({ source, target, name: name.trim(), label: label.trim(), display: display.trim(), type: type.trim(), detail: detail.trim() });
+          continue;
+        }
+        if (/^#{1,6}\s/.test(line)) current = null;
+        if (current && /^概要[：:]/.test(line)) current.summary = line.replace(/^概要[：:]\s*/, "");
+        if (current && /^详细[：:]/.test(line)) current.detail = line.replace(/^详细[：:]\s*/, "");
+      }
+      for (const module of modules.values()) {
+        const parent = parentId(module.id);
+        if (!children.has(parent)) children.set(parent, []);
+        children.get(parent).push(module.id);
+      }
+      return { title, modules, children, flows };
+    }
+
+    function hasChildren(id) {
+      return (state.model.children.get(id) || []).length > 0;
+    }
+
+    function moduleName(id) {
+      return state.model.modules.get(id)?.name || id;
+    }
+
+    function brandMark() {
+      const svg = svgElement("svg", { class: "brand", viewBox: "0 0 18 18", "aria-hidden": "true" });
+      svg.append(
+        svgElement("path", { d: "M6.5 5 H11.5 M6.5 13 H11.5 M4 7.5 V10.5", fill: "none", stroke: "#a6aaaf", "stroke-width": 1.2 }),
+        svgElement("rect", { x: 1.5, y: 2.5, width: 5, height: 5, rx: 1.2, fill: "none", stroke: "#1c2026", "stroke-width": 1.3 }),
+        svgElement("rect", { x: 11.5, y: 2.5, width: 5, height: 5, rx: 1.2, fill: "none", stroke: "#1c2026", "stroke-width": 1.3 }),
+        svgElement("rect", { x: 1.5, y: 10.5, width: 5, height: 5, rx: 1.2, fill: "none", stroke: "#1c2026", "stroke-width": 1.3 }),
+        svgElement("rect", { x: 11.5, y: 10.5, width: 5, height: 5, rx: 1.2, fill: "#0e7c62" })
+      );
+      return svg;
+    }
+
+    function renderBreadcrumbs() {
+      const nav = document.getElementById("breadcrumbs");
+      nav.replaceChildren();
+      const entries = [{ id: "", name: state.model.title, root: true }];
+      if (state.level) {
+        const segments = state.level.split("/");
+        segments.forEach((_, index) => {
+          const id = segments.slice(0, index + 1).join("/");
+          entries.push({ id, name: moduleName(id) });
+        });
+      }
+      entries.forEach((entry, index) => {
+        if (index) nav.append(element("span", "crumb-sep", "/"));
+        const button = element("button", entry.root ? "crumb crumb-root" : "crumb");
+        if (entry.root) {
+          button.append(brandMark());
+          button.title = "返回全部模块";
+        }
+        button.append(element("span", "crumb-text", entry.name));
+        button.type = "button";
+        button.disabled = entry.id === state.level;
+        if (button.disabled) button.setAttribute("aria-current", "page");
+        button.addEventListener("click", () => {
+          state.level = entry.id;
+          closeDetails();
+          render();
+        });
+        nav.append(button);
+      });
+    }
+
+    function buildView() {
+      const visibleIds = state.model.children.get(state.level) || [];
+      const visible = new Set(visibleIds);
+      const nodes = new Map();
+      visibleIds.forEach(id => nodes.set(id, { id, module: state.model.modules.get(id), external: false }));
+
+      function mapEndpoint(id) {
+        if (!state.model.modules.has(id)) return null;
+        if (!state.level) {
+          const top = id.split("/")[0];
+          return visible.has(top) ? { id: top, external: false } : null;
+        }
+        const prefix = state.level + "/";
+        if (id.startsWith(prefix)) {
+          const child = prefix + id.slice(prefix.length).split("/")[0];
+          return visible.has(child) ? { id: child, external: false } : null;
+        }
+        // 外部端点折叠到与当前路径分叉的第一个模块，避免展开整个外部子树。
+        const outside = id.split("/"), inside = state.level.split("/");
+        let common = 0;
+        while (common < outside.length && common < inside.length && outside[common] === inside[common]) common++;
+        let representative = outside.slice(0, Math.min(common + 1, outside.length)).join("/");
+        while (representative && !state.model.modules.has(representative)) representative = parentId(representative);
+        return representative ? { id: representative, external: true } : null;
+      }
+
+      const groups = new Map();
+      for (const flow of state.model.flows) {
+        if (!state.types.has(flow.type)) continue;
+        const source = mapEndpoint(flow.source), target = mapEndpoint(flow.target);
+        if (!source || !target || source.id === target.id || (source.external && target.external)) continue;
+        for (const endpoint of [source, target]) {
+          if (!nodes.has(endpoint.id)) nodes.set(endpoint.id, { ...endpoint, module: state.model.modules.get(endpoint.id) });
+        }
+        const key = JSON.stringify([source.id, target.id]);
+        if (!groups.has(key)) groups.set(key, { key, source: source.id, target: target.id, flows: [] });
+        groups.get(key).flows.push(flow);
+      }
+      const edges = [...groups.values()];
+      for (const node of nodes.values()) {
+        if (!node.external) continue;
+        const sends = edges.filter(edge => edge.source === node.id).reduce((sum, edge) => sum + edge.flows.length, 0);
+        const receives = edges.filter(edge => edge.target === node.id).reduce((sum, edge) => sum + edge.flows.length, 0);
+        node.side = sends >= receives ? "left" : "right";
+      }
+      return { nodes, edges, visibleIds };
+    }
+
+    function textWidth(text, size = 12, weight = 400) {
+      if (!measureContext) return Array.from(text).length * size;
+      measureContext.font = `${weight} ${size}px ${FONT}`;
+      return measureContext.measureText(text).width;
+    }
+
+    function truncate(text, width, size = 12, weight = 400) {
+      if (textWidth(text, size, weight) <= width) return text;
+      const chars = Array.from(text);
+      while (chars.length && textWidth(chars.join("") + "…", size, weight) > width) chars.pop();
+      return chars.join("").trimEnd() + "…";
+    }
+
+    const WIDE = "⺀-鿿豈-﫿︰-﹏＀-￯　-〿";
+    const TOKEN = new RegExp(`[${WIDE}]|\\s+|[^\\s${WIDE}]+`, "g");
+    const CLOSING = /^[，。、；：！？）》」』】”’,.;:!?)\]]$/;
+
+    // 中文逐字换行、西文按词换行，句读标点不放在行首。
+    function wrapText(text, width, size = 12, weight = 400) {
+      const lines = [];
+      let line = "";
+      const fits = value => textWidth(value, size, weight) <= width;
+      const breakLong = token => {
+        for (const char of Array.from(token)) {
+          if (line && !fits(line + char)) { lines.push(line.trimEnd()); line = ""; }
+          line += char;
+        }
+      };
+      for (const token of String(text).match(TOKEN) || []) {
+        if (/^\s+$/.test(token)) { if (line) line += " "; continue; }
+        if (fits(line + token)) { line += token; continue; }
+        if (line && CLOSING.test(token)) { line += token; continue; }
+        if (line.trim()) { lines.push(line.trimEnd()); line = ""; }
+        if (fits(token)) line = token;
+        else breakLong(token);
+      }
+      if (line.trim() || !lines.length) lines.push(line.trimEnd());
+      return lines;
+    }
+
+    function clampLines(lines, max, width, size = 12, weight = 400) {
+      if (lines.length <= max) return lines;
+      const kept = lines.slice(0, max);
+      kept[max - 1] = truncate(lines[max - 1] + lines[max], width, size, weight);
+      if (!kept[max - 1].endsWith("…")) kept[max - 1] += "…";
+      return kept;
+    }
+
+    function layout(view) {
+      const internalEdges = view.edges.filter(edge => !view.nodes.get(edge.source).external && !view.nodes.get(edge.target).external);
+      const remaining = new Set(view.visibleIds), order = [];
+      // 先取没有前驱的模块；遇到环时优先保留向外流动较多的方向。
+      while (remaining.size) {
+        const candidates = [...remaining].map(id => ({
+          id,
+          incoming: internalEdges.filter(edge => edge.target === id && remaining.has(edge.source)).reduce((n, edge) => n + edge.flows.length, 0),
+          outgoing: internalEdges.filter(edge => edge.source === id && remaining.has(edge.target)).reduce((n, edge) => n + edge.flows.length, 0)
+        }));
+        const source = candidates.find(item => item.incoming === 0);
+        const chosen = source || candidates.reduce((best, item) => item.outgoing - item.incoming > best.outgoing - best.incoming ? item : best);
+        order.push(chosen.id);
+        remaining.delete(chosen.id);
+      }
+      const ranks = new Map();
+      let previousRank = 0;
+      for (const id of order) {
+        let rank = previousRank;
+        for (const edge of internalEdges) {
+          if (edge.target === id && ranks.has(edge.source)) rank = Math.max(rank, ranks.get(edge.source) + 1);
+        }
+        ranks.set(id, rank);
+        previousRank = rank;
+      }
+      const columns = new Map();
+      for (const node of view.nodes.values()) {
+        const rank = node.external ? (node.side === "left" ? -1 : previousRank + 1) : ranks.get(node.id);
+        if (!columns.has(rank)) columns.set(rank, []);
+        columns.get(rank).push(node);
+      }
+      const layers = [...columns.entries()].sort((a, b) => a[0] - b[0]).map(entry => entry[1]);
+      layers.forEach((nodes, col) => nodes.forEach(node => { node.col = col; }));
+      // 用相邻模块的纵向位置排序，减少正向连接的交错。
+      for (let pass = 0; pass < 3; pass++) {
+        const sweep = pass % 2 ? [...layers].reverse() : layers;
+        for (const nodes of sweep) {
+          const positions = new Map();
+          layers.forEach(layer => layer.forEach((node, i) => positions.set(node.id, (i + .5) / layer.length)));
+          const score = node => {
+            const neighbors = view.edges.flatMap(edge => edge.source === node.id ? [edge.target] : edge.target === node.id ? [edge.source] : []);
+            return neighbors.length ? neighbors.reduce((sum, id) => sum + positions.get(id), 0) / neighbors.length : positions.get(node.id);
+          };
+          const scores = new Map(nodes.map(node => [node.id, score(node)]));
+          nodes.sort((a, b) => scores.get(a.id) - scores.get(b.id) || a.module.order - b.module.order);
+        }
+      }
+
+      // 方框宽度取能让所有名称单行、概要不超过两行的最小值。
+      const nodeList = [...view.nodes.values()];
+      const childCount = node => (state.model.children.get(node.id) || []).length;
+      const reserve = node => (childCount(node) ? 26 + String(childCount(node)).length * 7 : 0) + (node.external ? 36 : 0);
+      let nodeW = 268;
+      for (let width = 196; width <= 268; width += 4) {
+        if (nodeList.every(node => textWidth(node.module.name, NAME_SIZE, NAME_WEIGHT) <= width - 34 - reserve(node) && wrapText(node.module.summary, width - 34, SUMMARY_SIZE).length <= 2)) {
+          nodeW = width;
+          break;
+        }
+      }
+      nodeList.forEach(node => {
+        node.children = childCount(node);
+        node.nameText = truncate(node.module.name, nodeW - 34 - reserve(node), NAME_SIZE, NAME_WEIGHT);
+        node.summaryLines = node.module.summary ? clampLines(wrapText(node.module.summary, nodeW - 34, SUMMARY_SIZE), 2, nodeW - 34, SUMMARY_SIZE) : [];
+      });
+
+      for (const edge of view.edges) {
+        const labels = edge.flows.map(flow => flow.label || flow.name);
+        edge.label = labels.length > 2 ? labels.slice(0, 2).join("、") + `等 ${labels.length} 条` : labels.join("、");
+        edge.labelLines = wrapText(edge.label, LABEL_WRAP, LABEL_SIZE);
+        edge.labelWidth = Math.max(...edge.labelLines.map(line => textWidth(line, LABEL_SIZE)), 16);
+        edge.labelHeight = edge.labelLines.length * LABEL_LINE;
+        const distance = view.nodes.get(edge.target).col - view.nodes.get(edge.source).col;
+        edge.route = distance <= 0 ? "feedback" : distance > 1 ? "upper" : "forward";
+      }
+      const maxLabelWidth = Math.max(60, ...view.edges.map(edge => edge.labelWidth));
+      const maxLabelHeight = Math.max(LABEL_LINE, ...view.edges.map(edge => edge.labelHeight));
+      const columnGap = Math.max(168, Math.min(240, maxLabelWidth + 80));
+      const laneStep = maxLabelHeight + 18;
+      const span = edge => Math.abs(view.nodes.get(edge.target).col - view.nodes.get(edge.source).col);
+      const byLane = (a, b) => span(a) - span(b) || view.nodes.get(a.source).col - view.nodes.get(b.source).col;
+      // 跨度短的绕行线贴近模块，跨度长的放在外侧，嵌套而不交叉。
+      const upper = view.edges.filter(edge => edge.route === "upper").sort(byLane);
+      const feedback = view.edges.filter(edge => edge.route === "feedback").sort(byLane);
+      upper.forEach((edge, i) => { edge.lane = i; });
+      feedback.forEach((edge, i) => { edge.lane = i; });
+
+      const gridTop = PAD_Y + (upper.length ? 28 + (upper.length - 1) * laneStep + maxLabelHeight + 8 : 0);
+      const rows = Math.max(...layers.map(nodes => nodes.length));
+      const gridHeight = rows * NODE_H + (rows - 1) * ROW_GAP;
+      const gridBottom = gridTop + gridHeight;
+      layers.forEach((nodes, column) => {
+        const height = nodes.length * NODE_H + (nodes.length - 1) * ROW_GAP;
+        nodes.forEach((node, row) => {
+          node.x = PAD_X + column * (nodeW + columnGap);
+          node.y = gridTop + (gridHeight - height) / 2 + row * (NODE_H + ROW_GAP);
+        });
+      });
+
+      // 输出端口在右侧、输入端口在左侧：上绕线占上方端口，反馈线占下方端口。
+      const routeOrder = { upper: 0, forward: 1, feedback: 2 };
+      const portOrder = other => (a, b) => routeOrder[a.route] - routeOrder[b.route]
+        || (a.route === "upper" ? a.lane - b.lane : a.route === "feedback" ? b.lane - a.lane : view.nodes.get(a[other]).y - view.nodes.get(b[other]).y);
+      for (const node of view.nodes.values()) {
+        const place = (list, key) => list.forEach((edge, i) => { edge[key] = node.y + 18 + (i + 1) * (NODE_H - 36) / (list.length + 1); });
+        place(view.edges.filter(edge => edge.source === node.id).sort(portOrder("target")), "sourceY");
+        place(view.edges.filter(edge => edge.target === node.id).sort(portOrder("source")), "targetY");
+      }
+
+      const laneOffset = lane => 16 + (lane % 5) * 9;
+      const labelBox = (edge, x, lineY, placement) => {
+        const top = placement === "below" ? lineY + 5 : lineY - 5 - edge.labelHeight;
+        return { x, top, width: edge.labelWidth, height: edge.labelHeight };
+      };
+      const setLabel = (edge, x, lineY, placement) => {
+        const box = labelBox(edge, x, lineY, placement);
+        edge.labelX = x;
+        edge.labelTop = box.top;
+      };
+      const usedLabels = [];
+      for (const edge of view.edges) {
+        const source = view.nodes.get(edge.source), target = view.nodes.get(edge.target);
+        const sx = source.x + nodeW, tx = target.x, sy = edge.sourceY, ty = edge.targetY;
+        if (edge.route === "upper" || edge.route === "feedback") {
+          const lineY = edge.route === "upper" ? gridTop - 28 - edge.lane * laneStep : gridBottom + 32 + edge.lane * laneStep;
+          const rx = sx + laneOffset(edge.lane), lx = tx - laneOffset(edge.lane);
+          edge.path = roundedPath([[sx, sy], [rx, sy], [rx, lineY], [lx, lineY], [lx, ty], [tx, ty]]);
+          setLabel(edge, (rx + lx) / 2, lineY, edge.route === "upper" ? "above" : "below");
+        } else {
+          const cx = (sx + tx) / 2, half = Math.min(edge.labelWidth / 2 + 6, (tx - sx) / 2 - 26);
+          const base = (sy + ty) / 2, step = maxLabelHeight + 10;
+          const minY = gridTop + edge.labelHeight + 10, maxY = gridBottom - 4;
+          let lineY = Math.max(minY, Math.min(maxY, base));
+          for (const offset of [0, -1, 1, -2, 2, -3, 3]) {
+            const candidate = Math.max(minY, Math.min(maxY, base + offset * step));
+            const box = labelBox(edge, cx, candidate, "above");
+            if (!usedLabels.some(other => Math.abs(other.x - box.x) < (other.width + box.width) / 2 + 10 && box.top < other.top + other.height + 6 && other.top < box.top + box.height + 6)) {
+              lineY = candidate;
+              break;
+            }
+          }
+          const left = cx - half, right = cx + half, d1 = (left - sx) * .55, d2 = (tx - right) * .55;
+          edge.path = `M ${sx} ${sy} C ${sx + d1} ${sy}, ${left - d1} ${lineY}, ${left} ${lineY} L ${right} ${lineY} C ${right + d2} ${lineY}, ${tx - d2} ${ty}, ${tx} ${ty}`;
+          setLabel(edge, cx, lineY, "above");
+          usedLabels.push(labelBox(edge, cx, lineY, "above"));
+        }
+      }
+      view.nodeW = nodeW;
+      view.width = PAD_X * 2 + layers.length * nodeW + (layers.length - 1) * columnGap;
+      view.height = gridBottom + (feedback.length ? 32 + (feedback.length - 1) * laneStep + 5 + maxLabelHeight : 0) + PAD_Y;
+    }
+
+    function roundedPath(points, radius = 10) {
+      const clean = points.filter((point, i) => !i || point[0] !== points[i - 1][0] || point[1] !== points[i - 1][1]);
+      let path = `M ${clean[0][0]} ${clean[0][1]}`;
+      for (let i = 1; i < clean.length - 1; i++) {
+        const a = clean[i - 1], b = clean[i], c = clean[i + 1];
+        const before = Math.hypot(a[0] - b[0], a[1] - b[1]), after = Math.hypot(c[0] - b[0], c[1] - b[1]);
+        const r = Math.min(radius, before / 2, after / 2);
+        const start = [b[0] + (a[0] - b[0]) * r / before, b[1] + (a[1] - b[1]) * r / before];
+        const end = [b[0] + (c[0] - b[0]) * r / after, b[1] + (c[1] - b[1]) * r / after];
+        path += ` L ${start[0]} ${start[1]} Q ${b[0]} ${b[1]} ${end[0]} ${end[1]}`;
+      }
+      const last = clean[clean.length - 1];
+      return path + ` L ${last[0]} ${last[1]}`;
+    }
+
+    function activateWithKeyboard(node, callback) {
+      node.addEventListener("click", callback);
+      node.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); callback(); }
+      });
+    }
+
+    function addDefinitions(svg) {
+      const defs = svgElement("defs");
+      for (const [id, color] of [["arrow-muted", COLORS.edge], ["arrow-selected", COLORS.strong], ["arrow-active", COLORS.active]]) {
+        const marker = svgElement("marker", { id, viewBox: "0 0 9 8", refX: 8.6, refY: 4, markerWidth: 9, markerHeight: 8, orient: "auto", markerUnits: "userSpaceOnUse" });
+        marker.append(svgElement("path", { d: "M 0 .6 L 9 4 L 0 7.4 L 2 4 Z", fill: color }));
+        defs.append(marker);
+      }
+      const shadow = svgElement("filter", { id: "node-shadow", x: "-10%", y: "-20%", width: "120%", height: "150%" });
+      shadow.append(svgElement("feDropShadow", { dx: 0, dy: 1, stdDeviation: 1.6, "flood-color": "#1c2026", "flood-opacity": .06 }));
+      defs.append(shadow);
+      svg.append(defs);
+    }
+
+    function drawEdge(edge, layer) {
+      const group = svgElement("g", { class: "edge", tabindex: 0, role: "button", "aria-label": `${moduleName(edge.source)} 到 ${moduleName(edge.target)}：${edge.label}` });
+      group.append(svgElement("title", {}, edge.flows.map(flow => flow.label + " · " + flow.name).join("\n")));
+      const line = svgElement("path", { class: "edge-line", d: edge.path, "marker-end": "url(#arrow-muted)" });
+      group.append(line, svgElement("path", { class: "edge-motion", d: edge.path }), svgElement("path", { class: "edge-hit", d: edge.path }));
+      group.append(svgElement("rect", { class: "edge-label-hit", x: edge.labelX - edge.labelWidth / 2 - 4, y: edge.labelTop - 2, width: edge.labelWidth + 8, height: edge.labelHeight + 4 }));
+      const label = svgElement("text", { class: "edge-label", "text-anchor": "middle" });
+      edge.labelLines.forEach((text, i) => label.append(svgElement("tspan", { x: edge.labelX, y: edge.labelTop + 12 + i * LABEL_LINE }, text)));
+      group.append(label);
+      activateWithKeyboard(group, () => openDetails({ kind: "edge", key: edge.key }));
+      group.addEventListener("pointerenter", () => setFocus({ edge }));
+      group.addEventListener("pointerleave", () => setFocus(null));
+      layer.append(group);
+      state.edgeElements.push({ group, line, edge });
+    }
+
+    function drawNode(node, layer, view) {
+      const width = view.nodeW, expandable = node.children > 0;
+      const group = svgElement("g", { class: "node" + (node.external ? " external" : ""), transform: `translate(${node.x}, ${node.y})`, tabindex: 0, role: "button", "aria-label": `${node.module.name}：${node.module.summary}${node.external ? "；外部关联模块" : ""}${expandable ? "；展开下级并查看详情" : "；查看详情"}` });
+      group.style.setProperty("--i", node.col);
+      group.append(svgElement("title", {}, node.module.name + "\n" + node.module.summary + "\n" + node.id));
+      if (expandable) group.append(svgElement("rect", { class: "node-stack", x: 5, y: 5, width, height: NODE_H, rx: 7 }));
+      group.append(svgElement("rect", { class: "node-box", width, height: NODE_H, rx: 7 }));
+      group.append(svgElement("text", { class: "node-name", x: 17, y: 33 }, node.nameText));
+      if (node.summaryLines.length) {
+        const summary = svgElement("text", { class: "node-summary" });
+        node.summaryLines.forEach((text, i) => summary.append(svgElement("tspan", { x: 17, y: 56 + i * 18 }, text)));
+        group.append(summary);
+      }
+      let tagRight = width - 16;
+      if (expandable) {
+        group.append(svgElement("text", { class: "node-count", x: width - 26, y: 32, "text-anchor": "end" }, String(node.children)));
+        group.append(svgElement("path", { class: "node-chevron", d: `M ${width - 20} 24.5 L ${width - 16} 28.5 L ${width - 20} 32.5` }));
+        tagRight = width - 34 - String(node.children).length * 7;
+      }
+      if (node.external) group.append(svgElement("text", { class: "node-tag", x: tagRight, y: 32, "text-anchor": "end" }, "外部"));
+      activateWithKeyboard(group, () => {
+        if (expandable && state.level !== node.id) { state.level = node.id; state.selection = null; render(); }
+        openDetails({ kind: "module", id: node.id });
+      });
+      group.addEventListener("pointerenter", () => setFocus({ node: node.id }));
+      group.addEventListener("pointerleave", () => setFocus(null));
+      layer.append(group);
+      state.nodeElements.set(node.id, group);
+    }
+
+    // 悬停时突出相关模块与连接，其余淡出。
+    function setFocus(target) {
+      const svg = state.svg;
+      if (!svg) return;
+      const nodes = new Set(), edges = new Set();
+      if (target?.node) {
+        nodes.add(target.node);
+        for (const { edge } of state.edgeElements) {
+          if (edge.source !== target.node && edge.target !== target.node) continue;
+          edges.add(edge.key);
+          nodes.add(edge.source);
+          nodes.add(edge.target);
+        }
+      } else if (target?.edge) {
+        edges.add(target.edge.key);
+        nodes.add(target.edge.source);
+        nodes.add(target.edge.target);
+      }
+      svg.classList.toggle("focusing", !!target);
+      state.nodeElements.forEach((group, id) => group.classList.toggle("related", nodes.has(id)));
+      state.edgeElements.forEach(({ group, edge }) => {
+        group.classList.toggle("related", edges.has(edge.key));
+        group.classList.toggle("hover", !!target?.edge && target.edge.key === edge.key);
+      });
+      updateMarkers();
+    }
+
+    function fitGraph() {
+      const svg = state.svg, view = state.view;
+      if (!svg || !view?.width) return;
+      const style = getComputedStyle(graph);
+      const availableWidth = graph.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const availableHeight = graph.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      if (availableWidth <= 0 || availableHeight <= 0) return;
+      // 模块少时放大填满画布，模块多时缩小，过小时允许滚动。
+      const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, availableWidth / view.width, availableHeight / view.height));
+      svg.style.width = view.width * scale + "px";
+      svg.style.height = view.height * scale + "px";
+    }
+
+    function render() {
+      renderBreadcrumbs();
+      const previous = state.renderedLevel;
+      let transition = state.transition;
+      state.transition = "";
+      if (previous !== null && previous !== state.level) {
+        const deeper = previous ? state.level.startsWith(previous + "/") : state.level !== "";
+        const shallower = state.level ? previous.startsWith(state.level + "/") : previous !== "";
+        transition = deeper ? "enter-in" : shallower ? "enter-out" : "enter-fade";
+      }
+      if (!state.svg && !transition) transition = "enter-fade";
+      state.renderedLevel = state.level;
+      graph.replaceChildren();
+      state.edgeElements = [];
+      state.nodeElements = new Map();
+      state.svg = null;
+      const view = buildView();
+      state.view = view;
+      const outsideCount = view.nodes.size - view.visibleIds.length;
+      document.getElementById("counts").textContent = `${view.visibleIds.length} 个模块${outsideCount ? ` · ${outsideCount} 个外部模块` : ""} · ${view.edges.length} 组连接`;
+      if (!view.nodes.size) {
+        const message = state.text === null ? (state.moduleError ? "无法读取 module.md：" + state.moduleError : "正在读取模块说明…") : state.level ? "当前模块没有可显示的子模块，可通过面包屑返回上层。" : "模块说明中暂无可显示的模块。";
+        graph.append(element("div", "empty", message));
+      } else {
+        layout(view);
+        const svg = svgElement("svg", { class: "graph-svg" + (transition ? " " + transition : ""), viewBox: `0 0 ${view.width} ${view.height}`, role: "group", "aria-label": "模块与数据流关系图" });
+        addDefinitions(svg);
+        const edgeLayer = svgElement("g"), nodeLayer = svgElement("g");
+        svg.append(edgeLayer, nodeLayer);
+        const priority = { feedback: 0, upper: 1, forward: 2 };
+        [...view.edges].sort((a, b) => priority[a.route] - priority[b.route]).forEach(edge => drawEdge(edge, edgeLayer));
+        view.nodes.forEach(node => drawNode(node, nodeLayer, view));
+        svg.addEventListener("pointerleave", () => setFocus(null));
+        graph.append(svg);
+        state.svg = svg;
+        fitGraph();
+      }
+      refreshDetails();
+      updateActivity();
+    }
+
+    function flowIsLive(name, now) {
+      const timestamp = state.names.get(name);
+      return Number.isFinite(timestamp) && now - timestamp >= 0 && now - timestamp <= 2;
+    }
+
+    function updateActivity() {
+      const now = Date.now() / 1000;
+      for (const { group, edge } of state.edgeElements) {
+        group.classList.toggle("active", edge.flows.some(flow => flowIsLive(flow.name, now)));
+      }
+      updateMarkers();
+      updateFlowStates(now);
+    }
+
+    function updateMarkers() {
+      for (const { group, line } of state.edgeElements) {
+        const marker = group.classList.contains("active") ? "active" : group.classList.contains("selected") || group.classList.contains("hover") ? "selected" : "muted";
+        line.setAttribute("marker-end", `url(#arrow-${marker})`);
+      }
+    }
+
+    function updateFlowStates(now = Date.now() / 1000) {
+      details.querySelectorAll(".flow-detail[data-flow]").forEach(section => {
+        const live = flowIsLive(section.dataset.flow, now);
+        section.classList.toggle("live", live);
+        const label = section.querySelector(".flow-state");
+        if (label) label.textContent = live ? "传输中" : "静止";
+      });
+    }
+
+    function markSelection() {
+      state.nodeElements.forEach((node, id) => node.classList.toggle("selected", state.selection?.kind === "module" && state.selection.id === id));
+      state.edgeElements.forEach(({ group, edge }) => group.classList.toggle("selected", state.selection?.kind === "edge" && state.selection.key === edge.key));
+      updateMarkers();
+    }
+
+    function closeDetails() {
+      stopLiveData();
+      liveData.widgets = [];
+      state.selection = null;
+      workspace.classList.remove("details-open");
+      drawer.setAttribute("aria-hidden", "true");
+      drawer.inert = true;
+      markSelection();
+    }
+
+    function openDetails(selection) {
+      state.selection = selection;
+      refreshDetails();
+      document.getElementById("close-details").focus({ preventScroll: true });
+    }
+
+    function appendField(label, text, className) {
+      const section = element("section", "detail-field" + (className ? " " + className : ""));
+      section.append(element("h4", "field-label", label), element("p", "", text || "—"));
+      details.append(section);
+    }
+
+    function routeArrow() {
+      const svg = svgElement("svg", { class: "route-arrow", viewBox: "0 0 22 10", "aria-hidden": "true" });
+      svg.append(svgElement("path", { d: "M 1 5 H 19 M 15 1.5 L 20 5 L 15 8.5", fill: "none", stroke: "currentColor", "stroke-width": 1.4, "stroke-linecap": "round", "stroke-linejoin": "round" }));
+      return svg;
+    }
+
+    function refreshDetails() {
+      if (!state.selection) { closeDetails(); return; }
+      liveData.widgets = [];
+      details.replaceChildren();
+      const title = document.getElementById("drawer-title");
+      let selectedEdge = null;
+      if (state.selection.kind === "module") {
+        stopLiveData();
+        const module = state.model.modules.get(state.selection.id);
+        if (!module) { closeDetails(); return; }
+        title.textContent = "模块";
+        const head = element("div", "detail-head");
+        head.append(element("h3", "detail-name", module.name), element("code", "identifier", module.id));
+        details.append(head);
+        const count = (state.model.children.get(module.id) || []).length;
+        if (count) details.append(element("p", "detail-note", `包含 ${count} 个子模块`));
+        appendField("概要", module.summary, "lead");
+        appendField("详细", module.detail);
+      } else {
+        const edge = state.view?.edges.find(item => item.key === state.selection.key);
+        if (!edge) { closeDetails(); return; }
+        selectedEdge = edge;
+        title.textContent = "数据流";
+        const head = element("div", "detail-head");
+        const route = element("p", "route");
+        route.append(element("span", "", moduleName(edge.source)), routeArrow(), element("span", "", moduleName(edge.target)));
+        head.append(route, element("p", "detail-note", `${edge.flows.length} 条数据流`));
+        details.append(head);
+        const list = element("div", "flow-list");
+        edge.flows.forEach(flow => {
+          const section = element("section", "flow-detail");
+          section.dataset.flow = flow.name;
+          const heading = element("div", "flow-title");
+          heading.append(element("h3", "", flow.label || flow.name), element("span", "flow-state", "静止"));
+          const meta = element("div", "flow-meta");
+          meta.append(element("code", "", flow.name), element("span", "sep", "·"), element("span", "", flow.display || "—"), element("span", "sep", "·"), element("span", "", flow.type || "—"));
+          const slot = element("div", "data-slot");
+          slot.setAttribute("data-name", flow.name);
+          slot.setAttribute("aria-label", flow.label + "的数据区域");
+          liveData.widgets.push(createDataWidget(flow, slot));
+          section.append(heading, meta, slot);
+          if (flow.detail) section.append(element("p", "flow-description", flow.detail));
+          list.append(section);
+        });
+        details.append(list);
+      }
+      workspace.classList.add("details-open");
+      drawer.setAttribute("aria-hidden", "false");
+      drawer.inert = false;
+      markSelection();
+      updateFlowStates();
+      if (selectedEdge) syncLiveData(selectedEdge);
+    }
+
+    function createDataWidget(flow, slot) {
+      const empty = element("div", "data-empty", "暂无数据");
+      const content = element("div", "data-content");
+      content.hidden = true;
+      const widget = { flow, empty, content };
+      if (flow.display === "曲线" || flow.display === "波形") {
+        widget.readout = element("div", "readout");
+        widget.canvas = element("canvas", "data-chart");
+        widget.canvas.setAttribute("role", "img");
+        widget.canvas.setAttribute("aria-label", flow.label + "最近 10 秒的数据折线图");
+        content.append(widget.readout, widget.canvas);
+      } else if (flow.display === "数值") {
+        widget.number = element("div", "data-number");
+        content.append(widget.number);
+      } else {
+        widget.list = element("ol", "data-text");
+        content.append(widget.list);
+      }
+      slot.append(empty, content);
+      return widget;
+    }
+
+    function stopLiveData() {
+      const session = liveData.session;
+      liveData.session = null;
+      if (session) {
+        clearInterval(session.timer);
+        clearTimeout(session.timeout);
+        session.controller?.abort();
+      }
+      liveData.cache.clear();
+      liveResizeObserver?.disconnect();
+    }
+
+    function syncLiveData(edge) {
+      const names = [...new Set(edge.flows.map(flow => flow.name))].sort();
+      const key = JSON.stringify([state.level, edge.key, names]);
+      // 同一箭头的说明重绘只重建显示区域，不重置增量读取游标。
+      if (liveData.session?.key !== key) {
+        stopLiveData();
+        const session = { key, names, since: null, timer: null, controller: null, timeout: null };
+        liveData.session = session;
+        session.timer = setInterval(() => {
+          if (liveData.session !== session) return;
+          renderLiveData();
+          pollLiveData(session);
+        }, 200);
+        pollLiveData(session);
+      }
+      liveResizeObserver?.observe(details);
+      renderLiveData();
+    }
+
+    async function pollLiveData(session) {
+      if (liveData.session !== session || session.controller) return;
+      const controller = new AbortController();
+      session.controller = controller;
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      session.timeout = timeout;
+      const query = new URLSearchParams({ names: session.names.join(",") });
+      if (session.since !== null) query.set("since", String(session.since));
+      try {
+        const response = await fetch("/data?" + query.toString(), { cache: "no-store", signal: controller.signal });
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const payload = await response.json();
+        // 切换面板后，旧请求即使已经返回，也不能覆盖新面板的数据。
+        if (liveData.session !== session) return;
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)) return;
+        const cutoff = Date.now() / 1000 - LIVE_SECONDS;
+        let maximum = session.since;
+        for (const name of session.names) {
+          if (!Object.prototype.hasOwnProperty.call(payload, name) || !Array.isArray(payload[name])) continue;
+          const points = liveData.cache.get(name) || [];
+          for (const point of payload[name]) {
+            if (!Array.isArray(point) || point.length !== 2 || typeof point[0] !== "number" || !Number.isFinite(point[0])) continue;
+            if (maximum === null || point[0] > maximum) maximum = point[0];
+            if (point[0] >= cutoff && (session.since === null || point[0] > session.since)) points.push([point[0], point[1]]);
+          }
+          points.sort((a, b) => a[0] - b[0]);
+          liveData.cache.set(name, points);
+        }
+        session.since = maximum;
+        renderLiveData();
+      } catch {
+        // 请求失败保留仍在时间窗口内的数据，下一个周期继续尝试。
+      } finally {
+        clearTimeout(timeout);
+        if (session.controller === controller) {
+          session.controller = null;
+          session.timeout = null;
+        }
+      }
+    }
+
+    function formatDataValue(value) {
+      return typeof value === "string" ? value : JSON.stringify(value);
+    }
+
+    function signed(text) {
+      return text.replace(/^-/, "−");
+    }
+
+    // 曲线最新值统一保留 3 位小数。
+    function formatReading(value) {
+      return typeof value === "number" && Number.isFinite(value) ? signed(value.toFixed(3)) : formatDataValue(value);
+    }
+
+    function clockTime(timestamp) {
+      const date = new Date(timestamp * 1000);
+      if (!Number.isFinite(date.getTime())) return "—";
+      return [date.getHours(), date.getMinutes(), date.getSeconds()].map(value => String(value).padStart(2, "0")).join(":");
+    }
+
+    function seriesColor(index) {
+      const colors = ["#2b6a94", "#c96a35", "#2f8a6a", "#86599f", "#b08a26", "#bf4a62"];
+      return colors[index] || `hsl(${(index * 137.508 + 212) % 360}, 40%, 44%)`;
+    }
+
+    function renderReadout(widget, latest, timestamp) {
+      const readout = widget.readout;
+      readout.replaceChildren();
+      const meta = element("div", "readout-meta");
+      meta.append(element("span", "", "最新值"), element("span", "readout-time", clockTime(timestamp)));
+      readout.append(meta);
+      if (Array.isArray(latest)) {
+        const list = element("div", "series-list");
+        latest.forEach((value, index) => {
+          const row = element("div", "series");
+          const swatch = element("i", "series-swatch");
+          swatch.style.background = seriesColor(index);
+          row.append(swatch, element("span", "series-name", `通道 ${index + 1}`), element("span", "series-value", formatReading(value)));
+          list.append(row);
+        });
+        if (!latest.length) list.append(element("span", "series-value", "[]"));
+        readout.append(list);
+      } else {
+        readout.append(element("div", "readout-value", formatReading(latest)));
+      }
+    }
+
+    function renderLiveData() {
+      if (!liveData.session) return;
+      const now = Date.now() / 1000;
+      for (const [name, points] of liveData.cache) {
+        const recent = points.filter(point => point[0] >= now - LIVE_SECONDS);
+        if (recent.length) liveData.cache.set(name, recent);
+        else liveData.cache.delete(name);
+      }
+      for (const widget of liveData.widgets) {
+        const points = (liveData.cache.get(widget.flow.name) || []).filter(point => point[0] <= now);
+        widget.empty.hidden = points.length > 0;
+        widget.content.hidden = points.length === 0;
+        if (!points.length) continue;
+        const [timestamp, latest] = points[points.length - 1];
+        if (widget.canvas) {
+          renderReadout(widget, latest, timestamp);
+          drawDataChart(widget.canvas, points, now);
+        } else if (widget.number) {
+          widget.number.textContent = formatDataValue(latest);
+          widget.number.classList.toggle("raw", typeof latest !== "number");
+        } else {
+          widget.list.replaceChildren();
+          points.slice(-5).forEach(([time, value]) => {
+            const row = element("li", "data-entry");
+            row.append(element("time", "", clockTime(time)), element("span", "data-entry-value", formatDataValue(value)));
+            widget.list.append(row);
+          });
+        }
+      }
+    }
+
+    function drawDataChart(canvas, points, now) {
+      const width = canvas.getBoundingClientRect().width;
+      if (width <= 0) return;
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      const ratio = window.devicePixelRatio || 1;
+      const pixelWidth = Math.max(1, Math.round(width * ratio));
+      const pixelHeight = Math.round(CHART_HEIGHT * ratio);
+      if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+      if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context.clearRect(0, 0, width, CHART_HEIGHT);
+      let minimum = Infinity, maximum = -Infinity, channels = 0;
+      const samples = points.map(([timestamp, value]) => {
+        const values = Array.isArray(value) ? value : [value];
+        channels = Math.max(channels, values.length);
+        values.forEach(number => {
+          if (typeof number !== "number" || !Number.isFinite(number)) return;
+          minimum = Math.min(minimum, number);
+          maximum = Math.max(maximum, number);
+        });
+        return { timestamp, values };
+      });
+      if (minimum === Infinity) {
+        context.font = `11px ${FONT}`;
+        context.fillStyle = COLORS.axis;
+        context.textAlign = "center";
+        context.textBaseline = "middle";
+        context.fillText("暂无数值", width / 2, CHART_HEIGHT / 2);
+        return;
+      }
+      if (minimum === maximum) {
+        const padding = Math.max(Math.abs(minimum) * .05, 0.000001);
+        minimum = Math.max(-Number.MAX_VALUE, minimum - padding);
+        maximum = Math.min(Number.MAX_VALUE, maximum + padding);
+      } else {
+        // 上下各留出少量余量，曲线不贴边。
+        const padding = maximum * .08 - minimum * .08;
+        minimum = Math.max(-Number.MAX_VALUE, minimum - padding);
+        maximum = Math.min(Number.MAX_VALUE, maximum + padding);
+      }
+      const axisValue = number => signed(String(Number(number.toPrecision(3))));
+      const middle = minimum / 2 + maximum / 2;
+      const labels = [axisValue(maximum), axisValue(middle), axisValue(minimum)];
+      context.font = `10px ${MONO}`;
+      const left = Math.min(width * .4, Math.max(30, ...labels.map(label => context.measureText(label).width + 10)));
+      const right = width - 4, top = 8, bottom = CHART_HEIGHT - 22;
+      const plotWidth = Math.max(1, right - left), plotHeight = bottom - top;
+      context.lineWidth = 1;
+      context.strokeStyle = COLORS.grid;
+      [top, (top + bottom) / 2, bottom].forEach((y, i) => {
+        const crisp = Math.round(y) + .5;
+        context.beginPath();
+        context.moveTo(left, crisp);
+        context.lineTo(right, crisp);
+        context.stroke();
+        context.fillStyle = COLORS.axis;
+        context.textAlign = "right";
+        context.textBaseline = "middle";
+        context.fillText(labels[i], left - 8, y);
+      });
+      context.font = `10px ${FONT}`;
+      context.textBaseline = "alphabetic";
+      context.fillStyle = COLORS.axis;
+      context.textAlign = "left";
+      context.fillText(`${LIVE_SECONDS} 秒前`, left, CHART_HEIGHT - 5);
+      context.textAlign = "center";
+      context.fillText(`${LIVE_SECONDS / 2} 秒前`, left + plotWidth / 2, CHART_HEIGHT - 5);
+      context.textAlign = "right";
+      context.fillText("现在", right, CHART_HEIGHT - 5);
+      // 先缩放数值再计算比例，避免极大正负值相减时溢出。
+      const magnitude = Math.max(Math.abs(minimum), Math.abs(maximum), Number.MIN_VALUE);
+      const lower = minimum / magnitude, range = maximum / magnitude - lower;
+      const ends = [];
+      context.save();
+      context.beginPath();
+      context.rect(left, top - 2, plotWidth, plotHeight + 4);
+      context.clip();
+      for (let channel = 0; channel < channels; channel++) {
+        context.strokeStyle = seriesColor(channel);
+        context.lineWidth = 1.6;
+        context.lineJoin = "round";
+        context.lineCap = "round";
+        let connected = false, lastPoint = null;
+        context.beginPath();
+        for (const sample of samples) {
+          const value = sample.values[channel];
+          if (typeof value !== "number" || !Number.isFinite(value)) { connected = false; continue; }
+          const x = left + (sample.timestamp - (now - LIVE_SECONDS)) / LIVE_SECONDS * plotWidth;
+          const y = bottom - (range ? (value / magnitude - lower) / range : .5) * plotHeight;
+          if (connected) context.lineTo(x, y);
+          else context.moveTo(x, y);
+          connected = true;
+          lastPoint = [x, y];
+        }
+        context.stroke();
+        if (lastPoint) ends.push([lastPoint, seriesColor(channel)]);
+      }
+      context.restore();
+      for (const [[x, y], color] of ends) {
+        context.beginPath();
+        context.arc(x, y, 2.8, 0, Math.PI * 2);
+        context.fillStyle = color;
+        context.strokeStyle = "#fcfcfa";
+        context.lineWidth = 1.5;
+        context.fill();
+        context.stroke();
+      }
+    }
+
+    function updateStatus() {
+      const status = document.getElementById("status");
+      const messages = [];
+      if (state.moduleError) messages.push("模块说明：" + state.moduleError);
+      if (state.namesError) messages.push("数据连接：" + state.namesError);
+      const ready = state.text !== null && state.namesLoaded;
+      const message = messages.length ? messages.join(" · ") : state.text === null ? "正在读取模块说明…" : state.namesLoaded ? "已连接" : "正在连接数据…";
+      status.className = "status " + (messages.length ? "warning" : ready ? "ok" : "pending");
+      document.getElementById("status-text").textContent = message;
+      status.title = messages.length ? message : ready ? "模块已同步 · 数据连接正常" : message;
+    }
+
+    async function request(path, asJson) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      try {
+        const response = await fetch(path, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) throw new Error(response.status === 404 ? "文件或接口不存在（404）" : "HTTP " + response.status);
+        return await (asJson ? response.json() : response.text());
+      } finally { clearTimeout(timeout); }
+    }
+
+    function errorMessage(error) {
+      return error.name === "AbortError" ? "请求超时，将自动重试" : error.message || "请求失败，将自动重试";
+    }
+
+    async function loadModules() {
+      if (state.modulePending) return;
+      state.modulePending = true;
+      try {
+        const text = await request("/module.md", false);
+        state.moduleError = "";
+        if (text !== state.text) {
+          state.model = parseMarkdown(text);
+          state.text = text;
+          // 热更新时保留当前路径；仅在模块被删除后退回仍存在的上层。
+          while (state.level && !state.model.modules.has(state.level)) state.level = parentId(state.level);
+          document.title = state.model.title + " · 模块与数据流";
+          render();
+        }
+      } catch (error) {
+        state.moduleError = errorMessage(error);
+        if (state.text === null) render();
+      } finally {
+        state.modulePending = false;
+        updateStatus();
+      }
+    }
+
+    async function loadNames() {
+      if (state.namesPending) return;
+      state.namesPending = true;
+      try {
+        const names = await request("/names", true);
+        if (!names || typeof names !== "object" || Array.isArray(names)) throw new Error("返回格式不正确");
+        state.names = new Map(Object.entries(names).filter(([, timestamp]) => typeof timestamp === "number" && Number.isFinite(timestamp)));
+        state.namesLoaded = true;
+        state.namesError = "";
+        updateActivity();
+      } catch (error) {
+        state.namesError = errorMessage(error);
+      } finally {
+        state.namesPending = false;
+        updateStatus();
+      }
+    }
+
+    document.querySelectorAll(".filters input").forEach(input => input.addEventListener("change", () => {
+      state.types = new Set([...document.querySelectorAll(".filters input:checked")].map(item => item.value));
+      state.transition = "enter-fade";
+      render();
+    }));
+    document.getElementById("close-details").addEventListener("click", closeDetails);
+    document.addEventListener("keydown", event => { if (event.key === "Escape") closeDetails(); });
+    window.addEventListener("resize", () => { fitGraph(); renderLiveData(); });
+    graphResizeObserver?.observe(graph);
+
+    render();
+    loadModules();
+    loadNames();
+    setInterval(loadModules, 3000);
+    setInterval(() => { updateActivity(); loadNames(); }, 1000);
+  </script>
+</body>
+</html>

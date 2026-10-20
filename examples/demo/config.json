@@ -1,0 +1,20 @@
+{
+  "signal": {
+    "amplitude": 1.0,
+    "frequency_hz": 0.2,
+    "noise_std": 0.1
+  },
+  "filter": {
+    "window_size": 10
+  },
+  "pid": {
+    "kp": 2.0,
+    "ki": 0.5,
+    "kd": 0.1
+  },
+  "ports": {
+    "sensor_to_controller": 9001,
+    "plant_to_controller": 9002,
+    "controller_to_plant": 9003
+  }
+}

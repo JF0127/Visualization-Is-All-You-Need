@@ -1,0 +1,54 @@
+# ==== 运行产物 ====
+# 日志与采集数据（各模块下的 logs 目录）
+logs/
+*.log
+# 调试/导出数据
+out/
+output/
+outputs/
+tmp/
+*.tmp
+
+# ==== Python ====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+
+# ==== 虚拟环境 ====
+.venv/
+venv/
+env/
+ENV/
+# uv
+.uv/
+uv-cache/
+
+# ==== 环境变量/密钥 ====
+.env
+.env.*
+!.env.example
+
+# ==== 编辑器 / IDE ====
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ==== 系统文件 ====
+.DS_Store
+Thumbs.db
+desktop.ini
