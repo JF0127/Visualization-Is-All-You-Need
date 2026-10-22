@@ -1,27 +1,10 @@
 #!/usr/bin/env bash
+set -u
 cd "$(dirname "$0")" || exit 1
 
-pids=()
+if ! command -v uv >/dev/null 2>&1; then
+    echo "需要 uv：https://docs.astral.sh/uv/" >&2
+    exit 1
+fi
 
-cleanup() {
-    trap - EXIT
-    for pid in "${pids[@]}"; do
-        kill "$pid" 2>/dev/null
-    done
-    wait 2>/dev/null
-}
-
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-
-uv run python "plant.py" &
-pids+=("$!")
-
-uv run python "controller.py" &
-pids+=("$!")
-
-uv run python "sensor.py" &
-pids+=("$!")
-
-wait
+exec uv run python run.py
